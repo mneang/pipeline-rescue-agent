@@ -1,0 +1,12 @@
+[
+  {
+    "id": "incident_sales_stale_001",
+    "title": "Monday Sales Dashboard is stale",
+    "severity": "high",
+    "affectedDashboard": "Executive Sales Overview",
+    "connectorId": "salesforce_to_bigquery_sales",
+    "destinationTable": "sales_orders",
+    "businessImpact": "Leadership meeting in 45 minutes may use outdated sales data.",
+    "lastSuccessfulRefreshHoursAgo": 17
+  }
+]
