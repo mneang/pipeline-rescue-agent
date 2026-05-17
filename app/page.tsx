@@ -19,6 +19,27 @@ type ToolStep = {
   badge?: string;
 };
 
+type RecoveryPlan = {
+  likelyCause: string;
+  businessRisk: string;
+  recommendedAction: string;
+  approvalRequired: boolean;
+  severity: "low" | "medium" | "high";
+  evidence: string[];
+  nextSteps: string[];
+  stakeholderMessage: string;
+};
+
+type RecoveryBrief = {
+  title: string;
+  status: string;
+  diagnosis: {
+    likelyCause: string;
+  };
+  stakeholderMessage: string;
+  recommendedActions: string[];
+};
+
 export default function Home() {
   const [incident, setIncident] = useState<Incident | null>(null);
   const [steps, setSteps] = useState<ToolStep[]>([
@@ -27,8 +48,8 @@ export default function Home() {
     { name: "Check data freshness", status: "pending" },
     { name: "Generate Gemini recovery plan", status: "pending" },
   ]);
-  const [recoveryPlan, setRecoveryPlan] = useState<any>(null);
-  const [brief, setBrief] = useState<any>(null);
+  const [recoveryPlan, setRecoveryPlan] = useState<RecoveryPlan | null>(null);
+  const [brief, setBrief] = useState<RecoveryBrief | null>(null);
   const [plannerMode, setPlannerMode] = useState<string | null>(null);
   const [isInvestigating, setIsInvestigating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);

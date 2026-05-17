@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local Google Cloud SDK install - not part of the app
+google-cloud-sdk/
+pipeline-rescue-agent/google-cloud-sdk/
+
+# Local Google Cloud SDK install - not part of the app
+google-cloud-sdk/
+pipeline-rescue-agent/google-cloud-sdk/
