@@ -5,6 +5,7 @@ import {
   generateRecoveryPlanWithGemini,
   getFallbackRecoveryPlan,
 } from "@/lib/gemini";
+import { getBigQueryFreshness } from "@/lib/bigquery";
 
 type TimelineStep = {
   step: string;
@@ -13,19 +14,6 @@ type TimelineStep = {
   summary: string;
   evidence?: Record<string, unknown>;
 };
-
-function getFreshnessEvidence() {
-  return {
-    table: "pipeline_rescue.sales_orders",
-    lastUpdated: "2026-05-16T12:25:00-07:00",
-    expectedFreshnessMinutes: 360,
-    actualFreshnessMinutes: 1020,
-    status: "stale",
-    rowCountCurrent: 5,
-    rowCountPrevious: 5,
-    mode: "demo_fallback",
-  };
-}
 
 export async function POST() {
   const timeline: TimelineStep[] = [];
@@ -73,12 +61,12 @@ export async function POST() {
       },
     });
 
-    const freshness = getFreshnessEvidence();
+    const freshness = await getBigQueryFreshness();
 
     timeline.push({
       step: "Check data freshness",
       tool: "Freshness check",
-      status: "fallback",
+      status: freshness.mode === "live_bigquery" ? "success" : "fallback",
       summary: `${freshness.table} is ${freshness.status}: ${freshness.actualFreshnessMinutes} minutes old vs ${freshness.expectedFreshnessMinutes} expected.`,
       evidence: {
         table: freshness.table,
