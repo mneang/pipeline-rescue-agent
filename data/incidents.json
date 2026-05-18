@@ -4,9 +4,9 @@
     "title": "Monday Sales Dashboard is stale",
     "severity": "high",
     "affectedDashboard": "Executive Sales Overview",
-    "connectorId": "salesforce_to_bigquery_sales",
+    "connectorId": "google_sheets_sales_orders",
     "destinationTable": "sales_orders",
-    "businessImpact": "Leadership meeting in 45 minutes may use outdated sales data.",
-    "lastSuccessfulRefreshHoursAgo": 17
+    "businessImpact": "Leadership meeting soon may use outdated sales data.",
+    "lastSuccessfulRefreshHoursAgo": 0
   }
 ]
