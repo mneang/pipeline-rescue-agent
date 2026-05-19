@@ -171,6 +171,12 @@ The agent checks live Fivetran status through the backend, including:
 
 This helps the agent distinguish between a broken connector and a stale data situation where the connector is healthy but the destination table has not received fresh records.
 
+### Fivetran MCP feasibility
+
+The official Fivetran MCP server was also tested locally in read-only mode. The server starts successfully in Codespaces and exposes relevant connection tools such as `list_connections`, `get_connection_details`, and `get_connection_state`.
+
+For the deployed Cloud Run demo, Pipeline Rescue Agent uses stable backend tool routes to inspect Fivetran connection status and combine it with BigQuery freshness evidence. Write operations are intentionally disabled for the MVP; the agent produces an approval-ready recovery brief rather than making destructive pipeline changes automatically.
+
 ---
 
 ## Gemini usage
