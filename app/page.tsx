@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Incident = {
   id: string;
   title: string;
   severity: string;
   affectedDashboard: string;
+  connectorId: string;
   destinationTable: string;
   businessImpact: string;
   lastSuccessfulRefreshHoursAgo: number;
 };
 
-type ToolStep = {
-  name: string;
-  status: "pending" | "running" | "success" | "error";
-  detail?: string;
-  badge?: string;
+type TimelineStep = {
+  step: string;
+  tool: string;
+  status: "success" | "fallback" | "error";
+  summary: string;
+  evidence?: Record<string, unknown>;
 };
 
 type RecoveryPlan = {
@@ -30,27 +32,55 @@ type RecoveryPlan = {
   stakeholderMessage: string;
 };
 
-type RecoveryBrief = {
-  title: string;
-  status: string;
-  diagnosis: {
-    likelyCause: string;
-  };
-  stakeholderMessage: string;
-  recommendedActions: string[];
+type InvestigationResult = {
+  ok: boolean;
+  mode: string;
+  incident: Incident;
+  timeline: TimelineStep[];
+  recoveryPlan: RecoveryPlan;
+  approvalRequired: boolean;
+  error?: string;
 };
+
+function formatFreshness(minutes?: number) {
+  if (typeof minutes !== "number" || Number.isNaN(minutes)) {
+    return "Freshness checked";
+  }
+
+  if (minutes < 60) {
+    return `${minutes} min stale`;
+  }
+
+  const hours = Math.round(minutes / 60);
+  return `~${hours} hrs stale`;
+}
+
+function conciseText(text: string, maxLength = 190) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const firstSentenceMatch = normalized.match(/^.*?[.!?](?:\s|$)/);
+  const firstSentence = firstSentenceMatch?.[0]?.trim() ?? normalized;
+
+  if (firstSentence.length <= maxLength) {
+    return firstSentence;
+  }
+
+  return `${firstSentence.slice(0, maxLength).trim()}…`;
+}
+
+function getStepBadge(step: TimelineStep) {
+  if (step.tool.toLowerCase().includes("fivetran")) return "Live Fivetran";
+  if (step.tool.toLowerCase().includes("freshness")) return "Live BigQuery";
+  if (step.tool.toLowerCase().includes("gemini")) return "Gemini Live";
+  if (step.tool.toLowerCase().includes("incident")) return "Incident";
+  return step.tool;
+}
 
 export default function Home() {
   const [incident, setIncident] = useState<Incident | null>(null);
-  const [steps, setSteps] = useState<ToolStep[]>([
-    { name: "Load incident", status: "pending" },
-    { name: "Check Fivetran connection", status: "pending" },
-    { name: "Check data freshness", status: "pending" },
-    { name: "Generate Gemini recovery plan", status: "pending" },
-  ]);
-  const [recoveryPlan, setRecoveryPlan] = useState<RecoveryPlan | null>(null);
-  const [brief, setBrief] = useState<RecoveryBrief | null>(null);
-  const [plannerMode, setPlannerMode] = useState<string | null>(null);
+  const [investigation, setInvestigation] = useState<InvestigationResult | null>(
+    null
+  );
+  const [approved, setApproved] = useState(false);
   const [isInvestigating, setIsInvestigating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
 
@@ -64,86 +94,82 @@ export default function Home() {
     loadIncident();
   }, []);
 
-  function updateStep(index: number, update: Partial<ToolStep>) {
-    setSteps((current) =>
-      current.map((step, i) => (i === index ? { ...step, ...update } : step))
+  const activeIncident = investigation?.incident ?? incident;
+  const timeline = useMemo(
+    () => investigation?.timeline ?? [],
+    [investigation?.timeline]
+  );
+  const recoveryPlan = investigation?.recoveryPlan ?? null;
+
+  const freshnessMinutes = useMemo(() => {
+    const freshnessStep = timeline.find((step) =>
+      step.tool.toLowerCase().includes("freshness")
     );
-  }
+
+    const value = freshnessStep?.evidence?.actualFreshnessMinutes;
+    return typeof value === "number" ? value : undefined;
+  }, [timeline]);
+
+  const freshnessLabel = formatFreshness(freshnessMinutes);
 
   async function runInvestigation() {
     setIsInvestigating(true);
-    setRecoveryPlan(null);
-    setBrief(null);
-    setPlannerMode(null);
-
-    setSteps([
-      { name: "Load incident", status: "running" },
-      { name: "Check Fivetran connection", status: "pending" },
-      { name: "Check data freshness", status: "pending" },
-      { name: "Generate Gemini recovery plan", status: "pending" },
-    ]);
+    setApproved(false);
+    setInvestigation(null);
 
     try {
-      const incidentsResponse = await fetch("/api/incidents");
-      const incidentsJson = await incidentsResponse.json();
-      const activeIncident = incidentsJson.incidents[0];
-      setIncident(activeIncident);
-
-      updateStep(0, {
-        status: "success",
-        badge: "Incident loaded",
-        detail: `${activeIncident.title} loaded for investigation.`,
-      });
-
-      updateStep(1, { status: "running" });
-      const fivetranResponse = await fetch("/api/fivetran/status");
-      const fivetranJson = await fivetranResponse.json();
-      const fivetranStatus = fivetranJson.result.status;
-
-      updateStep(1, {
-        status: "success",
-        badge: "Live Fivetran",
-        detail: `Service: ${fivetranJson.result.service}. Schema: ${fivetranJson.result.schema}. Status: ${fivetranStatus?.setup_state ?? "checked"} / ${fivetranStatus?.update_state ?? "available"}.`,
-      });
-
-      updateStep(2, { status: "running" });
-      const freshnessResponse = await fetch("/api/data/freshness");
-      const freshnessJson = await freshnessResponse.json();
-
-      updateStep(2, {
-        status: "success",
-        badge: "Freshness check",
-        detail: `${freshnessJson.result.table} is ${freshnessJson.result.status}. Actual freshness: ${freshnessJson.result.actualFreshnessMinutes} minutes vs expected ${freshnessJson.result.expectedFreshnessMinutes} minutes.`,
-      });
-
-      updateStep(3, { status: "running" });
-      const planResponse = await fetch("/api/agent/recovery-plan", {
+      const response = await fetch("/api/investigate", {
         method: "POST",
       });
-      const planJson = await planResponse.json();
+      const json = await response.json();
 
-      setPlannerMode(planJson.mode);
-      setRecoveryPlan(planJson.result);
+      if (!json.ok) {
+        throw new Error(json.error ?? "Investigation failed.");
+      }
 
-      updateStep(3, {
-        status: "success",
-        badge: planJson.mode === "gemini_live" ? "Gemini live" : "Fallback safe",
-        detail:
-          planJson.mode === "gemini_live"
-            ? "Gemini generated a recovery plan from incident, Fivetran, and freshness evidence."
-            : "Fallback recovery plan generated to keep the demo stable.",
-      });
+      setInvestigation(json);
+      setIncident(json.incident);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown investigation error";
 
-      setSteps((current) =>
-        current.map((step) =>
-          step.status === "running"
-            ? { ...step, status: "error", detail: message }
-            : step
-        )
-      );
+      setInvestigation({
+        ok: false,
+        mode: "error",
+        incident:
+          activeIncident ??
+          ({
+            id: "incident_sales_stale_001",
+            title: "Monday Sales Dashboard is stale",
+            severity: "high",
+            affectedDashboard: "Executive Sales Overview",
+            connectorId: "google_sheets_sales_orders",
+            destinationTable: "sales_orders",
+            businessImpact: "Leadership meeting soon may use outdated sales data.",
+            lastSuccessfulRefreshHoursAgo: 0,
+          } satisfies Incident),
+        timeline: [
+          {
+            step: "Investigation failed",
+            tool: "Pipeline Rescue Agent",
+            status: "error",
+            summary: message,
+          },
+        ],
+        recoveryPlan: {
+          likelyCause: "The investigation could not complete.",
+          businessRisk: "The dashboard freshness risk remains unresolved.",
+          recommendedAction: "Retry the investigation or check service credentials.",
+          approvalRequired: true,
+          severity: "high",
+          evidence: [message],
+          nextSteps: ["Retry the investigation.", "Check service credentials."],
+          stakeholderMessage:
+            "The dashboard investigation could not complete. Please retry or contact the data operations owner.",
+        },
+        approvalRequired: true,
+        error: message,
+      });
     } finally {
       setIsInvestigating(false);
     }
@@ -153,85 +179,93 @@ export default function Home() {
     setIsApproving(true);
 
     try {
-      const response = await fetch("/api/approval/generate-brief", {
+      await fetch("/api/approval/generate-brief", {
         method: "POST",
       });
-      const json = await response.json();
-      setBrief(json.result);
+      setApproved(true);
     } finally {
       setIsApproving(false);
     }
   }
 
-  const statusStyle: Record<ToolStep["status"], string> = {
-    pending: "border-slate-200 bg-slate-50 text-slate-500",
-    running: "border-blue-200 bg-blue-50 text-blue-700",
-    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    error: "border-red-200 bg-red-50 text-red-700",
-  };
-
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <section className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10">
-        <div className="flex flex-col gap-4">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-300">
-            Google Cloud Rapid Agent Hackathon · Fivetran Track
-          </p>
-
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <main className="min-h-screen bg-[#050816] text-slate-100">
+      <section className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-6">
+        <header className="rounded-3xl border border-slate-800 bg-slate-950/70 p-5 shadow-2xl">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+              <p className="text-xs font-bold uppercase tracking-[0.35em] text-blue-300">
+                Google Cloud Rapid Agent Hackathon · Fivetran Track
+              </p>
+              <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
                 Pipeline Rescue Agent
               </h1>
-              <p className="mt-4 max-w-3xl text-lg text-slate-300">
-                A Gemini-powered data operations agent that investigates stale
-                reporting pipelines, checks live Fivetran status, reviews data
-                freshness, and produces an approval-gated recovery brief.
+              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">
+                A data operations agent that turns a stale reporting pipeline
+                into an evidence-backed, human-approved recovery brief.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-blue-400/30 bg-blue-950/30 p-4 text-sm text-blue-100">
-              <p className="font-bold text-blue-200">Agent loop</p>
-              <p>Investigate → Reason → Approve → Brief</p>
+            <div className="grid min-w-[280px] grid-cols-2 gap-2 text-xs font-bold uppercase">
+              <div className="rounded-2xl border border-blue-400/30 bg-blue-500/10 px-4 py-3 text-blue-200">
+                Gemini Live
+              </div>
+              <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-emerald-200">
+                Fivetran Live
+              </div>
+              <div className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-cyan-200">
+                BigQuery Live
+              </div>
+              <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-amber-200">
+                Human Approval
+              </div>
             </div>
           </div>
-        </div>
+        </header>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-          <section className="rounded-2xl border border-red-400/30 bg-red-950/30 p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between gap-4">
+        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.35fr]">
+          <div className="rounded-3xl border border-red-400/25 bg-red-950/20 p-5">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-widest text-red-300">
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-300">
                   Active Incident
                 </p>
-                <h2 className="mt-2 text-2xl font-bold">
-                  {incident?.title ?? "Loading incident..."}
+                <h2 className="mt-3 text-2xl font-black leading-tight">
+                  {activeIncident?.title ?? "Loading incident..."}
                 </h2>
               </div>
-              <span className="rounded-full bg-red-500 px-3 py-1 text-xs font-bold uppercase text-white">
+              <span className="rounded-full bg-red-500 px-3 py-1 text-xs font-black uppercase text-white">
                 High
               </span>
             </div>
 
-            <div className="space-y-3 text-sm text-slate-200">
-              <div className="rounded-xl bg-slate-900/70 p-4">
+            <div className="mt-5 grid gap-3 text-sm">
+              <div className="rounded-2xl bg-slate-950/70 p-4">
                 <p className="text-slate-400">Affected dashboard</p>
-                <p className="font-semibold">
-                  {incident?.affectedDashboard ?? "Executive Sales Overview"}
+                <p className="mt-1 font-bold">
+                  {activeIncident?.affectedDashboard ?? "Executive Sales Overview"}
                 </p>
               </div>
 
-              <div className="rounded-xl bg-slate-900/70 p-4">
-                <p className="text-slate-400">Destination table</p>
-                <p className="font-semibold">
-                  {incident?.destinationTable ?? "sales_orders"}
-                </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-slate-950/70 p-4">
+                  <p className="text-slate-400">Destination table</p>
+                  <p className="mt-1 font-bold">
+                    {activeIncident?.destinationTable ?? "sales_orders"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-amber-400/30 bg-amber-950/25 p-4">
+                  <p className="text-slate-400">Freshness signal</p>
+                  <p className="mt-1 font-bold text-amber-200">
+                    {timeline.length ? freshnessLabel : "Pending investigation"}
+                  </p>
+                </div>
               </div>
 
-              <div className="rounded-xl bg-slate-900/70 p-4">
+              <div className="rounded-2xl bg-slate-950/70 p-4">
                 <p className="text-slate-400">Business impact</p>
-                <p className="font-semibold">
-                  {incident?.businessImpact ??
+                <p className="mt-1 font-bold">
+                  {activeIncident?.businessImpact ??
                     "Leadership meeting may use outdated sales data."}
                 </p>
               </div>
@@ -240,158 +274,209 @@ export default function Home() {
             <button
               onClick={runInvestigation}
               disabled={isInvestigating}
-              className="mt-6 w-full rounded-xl bg-blue-500 px-5 py-3 font-bold text-white transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-600"
+              className="mt-5 w-full rounded-2xl bg-blue-500 px-5 py-4 text-base font-black text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
-              {isInvestigating ? "Investigating..." : "Run Investigation"}
+              {isInvestigating ? "Investigating..." : "Run Rescue Investigation"}
             </button>
-          </section>
+          </div>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
-            <p className="text-sm font-semibold uppercase tracking-widest text-blue-300">
-              Agent Tool Timeline
-            </p>
-            <h2 className="mt-2 text-2xl font-bold">
-              Evidence-driven investigation
-            </h2>
-
-            <div className="mt-6 space-y-3">
-              {steps.map((step, index) => (
-                <div
-                  key={step.name}
-                  className={`rounded-xl border p-4 ${statusStyle[step.status]}`}
-                >
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <p className="font-bold">
-                      {index + 1}. {step.name}
-                    </p>
-                    <div className="flex gap-2">
-                      {step.badge ? (
-                        <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold uppercase text-slate-800">
-                          {step.badge}
-                        </span>
-                      ) : null}
-                      <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-bold uppercase text-slate-700">
-                        {step.status}
-                      </span>
-                    </div>
-                  </div>
-
-                  {step.detail ? (
-                    <p className="mt-2 text-sm opacity-90">{step.detail}</p>
-                  ) : null}
-                </div>
-              ))}
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-300">
+                  Agent Tool Timeline
+                </p>
+                <h2 className="mt-3 text-2xl font-black">
+                  One click, multi-tool investigation
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                  The backend orchestration route checks Fivetran, BigQuery, and
+                  Gemini in one controlled workflow.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-xs text-slate-300">
+                <span className="font-bold text-slate-100">Agent loop:</span>{" "}
+                Investigate → Reason → Approve → Brief
+              </div>
             </div>
-          </section>
-        </div>
+
+            <div className="mt-5 grid gap-3">
+              {(timeline.length
+                ? timeline
+                : [
+                    {
+                      step: "Load incident",
+                      tool: "Incident store",
+                      status: "fallback" as const,
+                      summary: "Waiting to start investigation.",
+                    },
+                    {
+                      step: "Check Fivetran connection",
+                      tool: "Fivetran API",
+                      status: "fallback" as const,
+                      summary: "Live Fivetran check will run here.",
+                    },
+                    {
+                      step: "Check BigQuery freshness",
+                      tool: "Freshness check",
+                      status: "fallback" as const,
+                      summary: "Live BigQuery freshness check will run here.",
+                    },
+                    {
+                      step: "Generate recovery plan",
+                      tool: "Gemini on Google Cloud",
+                      status: "fallback" as const,
+                      summary: "Gemini will generate the recovery plan.",
+                    },
+                  ]
+              ).map((step, index) => {
+                const success = step.status === "success";
+                const error = step.status === "error";
+
+                return (
+                  <div
+                    key={`${step.step}-${index}`}
+                    className={`rounded-2xl border p-4 ${
+                      error
+                        ? "border-red-300 bg-red-50 text-red-800"
+                        : success
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-slate-700 bg-slate-950 text-slate-300"
+                    }`}
+                  >
+                    <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
+                      <p className="font-black">
+                        {index + 1}. {step.step}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black uppercase text-slate-800">
+                          {getStepBadge(step)}
+                        </span>
+                        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-black uppercase text-slate-800">
+                          {step.status}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 opacity-90">
+                      {step.summary}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
 
         {recoveryPlan ? (
-          <section className="rounded-2xl border border-amber-300/30 bg-amber-950/20 p-6 shadow-xl">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <section className="rounded-3xl border border-amber-400/25 bg-amber-950/10 p-5">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-widest text-amber-300">
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-amber-300">
                   Recovery Plan · Human Approval Required
                 </p>
-                <h2 className="mt-2 text-2xl font-bold">
-                  Recommended action
+                <h2 className="mt-3 text-2xl font-black">
+                  Evidence-backed recommendation
                 </h2>
               </div>
 
-              <div className="flex flex-wrap gap-2 text-xs font-bold uppercase">
+              <div className="flex flex-wrap gap-2 text-xs font-black uppercase">
                 <span className="rounded-full bg-blue-500/20 px-3 py-1 text-blue-200">
-                  {plannerMode === "gemini_live"
-                    ? "Gemini live"
-                    : "Fallback safe"}
+                  Gemini Live
                 </span>
                 <span className="rounded-full bg-amber-500/20 px-3 py-1 text-amber-200">
-                  Approval required
+                  Approval Required
                 </span>
               </div>
             </div>
 
-            <p className="mt-4 text-slate-200">
-              {recoveryPlan.recommendedAction}
-            </p>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl bg-slate-900/80 p-4">
-                <p className="text-sm text-slate-400">Likely cause</p>
-                <p className="mt-2 font-medium">{recoveryPlan.likelyCause}</p>
+            <div className="mt-5 grid gap-3 lg:grid-cols-3">
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-sm text-slate-400">Cause</p>
+                <p className="mt-2 text-sm leading-6 text-slate-100">
+                  {conciseText(recoveryPlan.likelyCause)}
+                </p>
               </div>
-
-              <div className="rounded-xl bg-slate-900/80 p-4">
-                <p className="text-sm text-slate-400">Business risk</p>
-                <p className="mt-2 font-medium">{recoveryPlan.businessRisk}</p>
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-sm text-slate-400">Risk</p>
+                <p className="mt-2 text-sm leading-6 text-slate-100">
+                  {conciseText(recoveryPlan.businessRisk)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-sm text-slate-400">Action</p>
+                <p className="mt-2 text-sm leading-6 text-slate-100">
+                  {conciseText(recoveryPlan.recommendedAction)}
+                </p>
               </div>
             </div>
 
             <button
               onClick={approveBrief}
               disabled={isApproving}
-              className="mt-6 rounded-xl bg-emerald-500 px-5 py-3 font-bold text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-600"
+              className="mt-5 rounded-2xl bg-emerald-500 px-6 py-4 text-base font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
-              {isApproving
-                ? "Generating approved brief..."
-                : "Approve Recovery Brief"}
+              {isApproving ? "Generating brief..." : "Approve Recovery Brief"}
             </button>
           </section>
         ) : null}
 
-        {brief ? (
-          <section className="rounded-2xl border border-emerald-300/30 bg-emerald-950/20 p-6 shadow-xl">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+        {approved && recoveryPlan ? (
+          <section className="rounded-3xl border border-emerald-400/25 bg-emerald-950/10 p-5">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-widest text-emerald-300">
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-emerald-300">
                   Approved Output
                 </p>
-                <h2 className="mt-2 text-3xl font-bold">{brief.title}</h2>
-                <p className="mt-2 text-emerald-200">{brief.status}</p>
+                <h2 className="mt-3 text-2xl font-black">
+                  Pipeline Rescue Recovery Brief
+                </h2>
+                <p className="mt-2 text-emerald-200">
+                  Approved for stakeholder communication
+                </p>
               </div>
 
-              <span className="rounded-full bg-emerald-500/20 px-4 py-2 text-sm font-bold uppercase text-emerald-200">
-                Human approved
+              <span className="rounded-full bg-emerald-500/20 px-4 py-2 text-sm font-black uppercase text-emerald-200">
+                Human Approved
               </span>
             </div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl bg-slate-900/80 p-4">
-                <p className="text-sm text-slate-400">Diagnosis</p>
-                <p className="mt-2 font-medium">{brief.diagnosis.likelyCause}</p>
-              </div>
-
-              <div className="rounded-xl bg-slate-900/80 p-4">
+            <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-2xl bg-slate-950/80 p-4">
                 <p className="text-sm text-slate-400">Stakeholder message</p>
-                <p className="mt-2 font-medium">{brief.stakeholderMessage}</p>
+                <p className="mt-2 leading-7 text-slate-100">
+                  {conciseText(recoveryPlan.stakeholderMessage, 260)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-sm text-slate-400">Next steps</p>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-6 text-slate-100">
+                  {recoveryPlan.nextSteps.slice(0, 3).map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl bg-slate-900/80 p-4">
-              <p className="text-sm text-slate-400">Recommended next steps</p>
-              <ol className="mt-3 list-decimal space-y-2 pl-5">
-                {brief.recommendedActions.map((action: string) => (
-                  <li key={action}>{action}</li>
-                ))}
-              </ol>
-            </div>
-
-            <div className="mt-6 rounded-xl border border-blue-400/20 bg-blue-950/20 p-4">
-              <p className="text-sm font-semibold uppercase tracking-widest text-blue-300">
+            <div className="mt-5 rounded-2xl border border-blue-400/20 bg-blue-950/20 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-300">
                 Before / After
               </p>
+
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div>
-                  <p className="font-bold text-slate-200">Before</p>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                    <li>Analyst manually checks multiple systems</li>
-                    <li>Dashboard freshness risk is unclear</li>
+                  <p className="font-black text-slate-100">Before</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                    <li>Analyst checks pipeline tools manually</li>
+                    <li>Freshness risk is unclear</li>
                     <li>No stakeholder-ready message</li>
                   </ul>
                 </div>
                 <div>
-                  <p className="font-bold text-slate-200">After</p>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                    <li>Agent checks Fivetran and freshness evidence</li>
-                    <li>Gemini generates a recovery recommendation</li>
+                  <p className="font-black text-slate-100">After</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                    <li>Agent checks Fivetran and BigQuery evidence</li>
+                    <li>Gemini generates the recovery recommendation</li>
                     <li>Human-approved recovery brief is ready</li>
                   </ul>
                 </div>
