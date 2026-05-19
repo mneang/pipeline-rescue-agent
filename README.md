@@ -173,7 +173,9 @@ This helps the agent distinguish between a broken connector and a stale data sit
 
 ### Fivetran MCP feasibility
 
-The official Fivetran MCP server was also tested locally in read-only mode. The server starts successfully in Codespaces and exposes relevant connection tools such as `list_connections`, `get_connection_details`, and `get_connection_state`.
+The official Fivetran MCP server was validated locally in read-only mode during development. The server started successfully in Codespaces, exposed 77 tools, and included relevant connection-inspection tools such as `list_connections`, `get_connection_details`, and `get_connection_state`.
+
+A local MCP client successfully called `get_connection_details` for the same Fivetran connection used in the deployed demo, confirming that live Fivetran connection inspection can be exposed through MCP tooling.
 
 For the deployed Cloud Run demo, Pipeline Rescue Agent uses stable backend tool routes to inspect Fivetran connection status and combine it with BigQuery freshness evidence. Write operations are intentionally disabled for the MVP; the agent produces an approval-ready recovery brief rather than making destructive pipeline changes automatically.
 
