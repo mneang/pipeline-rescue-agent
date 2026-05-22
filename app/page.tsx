@@ -55,6 +55,19 @@ function formatFreshness(minutes?: number) {
   return `~${hours} hrs stale`;
 }
 
+function formatFreshnessSentence(minutes?: number) {
+  if (typeof minutes !== "number" || Number.isNaN(minutes)) {
+    return "Freshness checked.";
+  }
+
+  if (minutes < 60) {
+    return `${minutes} minutes stale · expected under 6 hours.`;
+  }
+
+  const hours = Math.round(minutes / 60);
+  return `~${hours} hours stale · expected under 6 hours.`;
+}
+
 function conciseText(text: string, maxLength = 190) {
   const normalized = text.replace(/\s+/g, " ").trim();
   const firstSentenceMatch = normalized.match(/^.*?[.!?](?:\s|$)/);
@@ -65,6 +78,34 @@ function conciseText(text: string, maxLength = 190) {
   }
 
   return `${firstSentence.slice(0, maxLength).trim()}…`;
+}
+
+function getOutcomeValue(
+  timeline: TimelineStep[],
+  recoveryPlan: RecoveryPlan | null
+) {
+  const fivetranStep = timeline.find((step) =>
+    step.tool.toLowerCase().includes("fivetran")
+  );
+  const freshnessStep = timeline.find((step) =>
+    step.tool.toLowerCase().includes("freshness")
+  );
+  const geminiStep = timeline.find((step) =>
+    step.tool.toLowerCase().includes("gemini")
+  );
+
+  return {
+    pipeline:
+      fivetranStep?.status === "success" ? "Healthy" : "Needs review",
+    data:
+      freshnessStep?.evidence?.status === "stale" ? "Stale" : "Checked",
+    likelyIssue:
+      freshnessStep?.evidence?.status === "stale"
+        ? "Upstream source"
+        : "Needs review",
+    approval: recoveryPlan?.approvalRequired ? "Required" : "Not required",
+    plan: geminiStep?.status === "success" ? "Ready" : "Pending",
+  };
 }
 
 function getStepBadge(step: TimelineStep) {
@@ -111,6 +152,8 @@ export default function Home() {
   }, [timeline]);
 
   const freshnessLabel = formatFreshness(freshnessMinutes);
+  const freshnessSentence = formatFreshnessSentence(freshnessMinutes);
+  const outcome = getOutcomeValue(timeline, recoveryPlan);
 
   async function runInvestigation() {
     setIsInvestigating(true);
@@ -201,8 +244,9 @@ export default function Home() {
                 Pipeline Rescue Agent
               </h1>
               <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">
-                A data operations agent that turns a stale reporting pipeline
-                into an evidence-backed, human-approved recovery brief.
+                A data operations agent that investigates stale reporting pipelines,
+                verifies live evidence, and turns incidents into
+                human-approved recovery briefs.
               </p>
             </div>
 
@@ -271,10 +315,14 @@ export default function Home() {
               </div>
             </div>
 
+            <div className="mt-5 rounded-2xl border border-blue-400/20 bg-blue-500/10 p-3 text-xs font-bold uppercase tracking-[0.2em] text-blue-200">
+              Step 1 · Investigate the pipeline
+            </div>
+
             <button
               onClick={runInvestigation}
               disabled={isInvestigating}
-              className="mt-5 w-full rounded-2xl bg-blue-500 px-5 py-4 text-base font-black text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+              className="mt-3 w-full rounded-2xl bg-blue-500 px-5 py-4 text-base font-black text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
               {isInvestigating ? "Investigating..." : "Run Rescue Investigation"}
             </button>
@@ -358,7 +406,7 @@ export default function Home() {
                       </div>
                     </div>
                     <p className="mt-2 text-sm leading-6 opacity-90">
-                      {step.summary}
+                      {step.tool.toLowerCase().includes("freshness") && freshnessMinutes ? freshnessSentence : step.summary}
                     </p>
                   </div>
                 );
@@ -366,6 +414,59 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {recoveryPlan ? (
+          <section className="rounded-3xl border border-blue-400/20 bg-blue-950/10 p-5">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-300">
+                  Investigation Outcome
+                </p>
+                <h2 className="mt-2 text-2xl font-black">
+                  Pipeline checked. Decision path is clear.
+                </h2>
+              </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-xs text-slate-300">
+                Step 1 complete · Evidence collected
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+                  Fivetran
+                </p>
+                <p className="mt-1 text-xl font-black text-emerald-100">
+                  {outcome.pipeline}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-amber-300">
+                  BigQuery Data
+                </p>
+                <p className="mt-1 text-xl font-black text-amber-100">
+                  {outcome.data}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-blue-400/25 bg-blue-500/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-blue-300">
+                  Likely Issue
+                </p>
+                <p className="mt-1 text-xl font-black text-blue-100">
+                  {outcome.likelyIssue}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-purple-400/25 bg-purple-500/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-purple-300">
+                  Next Decision
+                </p>
+                <p className="mt-1 text-xl font-black text-purple-100">
+                  {outcome.approval}
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {recoveryPlan ? (
           <section className="rounded-3xl border border-amber-400/25 bg-amber-950/10 p-5">
@@ -410,10 +511,14 @@ export default function Home() {
               </div>
             </div>
 
+            <div className="mt-5 max-w-md rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-xs font-bold uppercase tracking-[0.2em] text-emerald-200">
+              Step 2 · Human approves the recovery brief
+            </div>
+
             <button
               onClick={approveBrief}
               disabled={isApproving}
-              className="mt-5 rounded-2xl bg-emerald-500 px-6 py-4 text-base font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+              className="mt-3 rounded-2xl bg-emerald-500 px-6 py-4 text-base font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
               {isApproving ? "Generating brief..." : "Approve Recovery Brief"}
             </button>
@@ -431,7 +536,7 @@ export default function Home() {
                   Pipeline Rescue Recovery Brief
                 </h2>
                 <p className="mt-2 text-emerald-200">
-                  Approved for stakeholder communication
+                  Step 3 complete · Approved for stakeholder communication
                 </p>
               </div>
 
