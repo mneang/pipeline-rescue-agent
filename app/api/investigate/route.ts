@@ -88,6 +88,24 @@ function getLikelyIssue(
   };
 }
 
+function enforceHumanApproval(
+  incident: Incident,
+  freshness: FreshnessResult,
+  recoveryPlan: RecoveryPlan
+): RecoveryPlan {
+  const mustRequireApproval =
+    incident.severity === "high" || freshness.status === "stale";
+
+  if (!mustRequireApproval) {
+    return recoveryPlan;
+  }
+
+  return {
+    ...recoveryPlan,
+    approvalRequired: true,
+  };
+}
+
 function buildAgentRun(args: {
   incident: Incident;
   timeline: TimelineStep[];
@@ -254,7 +272,12 @@ export async function POST() {
     };
 
     try {
-      const recoveryPlan = await generateRecoveryPlanWithGemini(inputs);
+      const rawRecoveryPlan = await generateRecoveryPlanWithGemini(inputs);
+      const recoveryPlan = enforceHumanApproval(
+        incident,
+        freshness,
+        rawRecoveryPlan
+      );
 
       timeline.push({
         step: "Generate recovery plan",
@@ -288,7 +311,12 @@ export async function POST() {
         approvalRequired: recoveryPlan.approvalRequired,
       });
     } catch (geminiError) {
-      const recoveryPlan = getFallbackRecoveryPlan(inputs);
+      const rawRecoveryPlan = getFallbackRecoveryPlan(inputs);
+      const recoveryPlan = enforceHumanApproval(
+        incident,
+        freshness,
+        rawRecoveryPlan
+      );
 
       timeline.push({
         step: "Generate recovery plan",
