@@ -143,6 +143,8 @@ Guardrails include:
 
 ## Architecture
 
+<img width="1774" height="887" alt="technical architecture" src="https://github.com/user-attachments/assets/79ee1f22-cea8-4fb3-a67f-c58ab83532de" />
+
 ```text
 User / Judge
    |
