@@ -32,11 +32,39 @@ type RecoveryPlan = {
   stakeholderMessage: string;
 };
 
+type AgentRun = {
+  agentName: string;
+  goal: string;
+  plan: string[];
+  toolsUsed: {
+    step: string;
+    tool: string;
+    status: string;
+  }[];
+  observations: string[];
+  decision: {
+    pipelineStatus: string;
+    dataStatus: string;
+    likelyIssue: string;
+    decisionSummary: string;
+    confidence: string;
+    recommendedHumanAction: string;
+    approvalRequired: boolean;
+  };
+  guardrails: string[];
+  finalArtifact: {
+    type: string;
+    status: string;
+    stakeholderMessagePreview: string;
+  };
+};
+
 type InvestigationResult = {
   ok: boolean;
   mode: string;
   incident: Incident;
   timeline: TimelineStep[];
+  agentRun?: AgentRun;
   recoveryPlan: RecoveryPlan;
   approvalRequired: boolean;
   error?: string;
@@ -141,6 +169,7 @@ export default function Home() {
     [investigation?.timeline]
   );
   const recoveryPlan = investigation?.recoveryPlan ?? null;
+  const agentRun = investigation?.agentRun ?? null;
 
   const freshnessMinutes = useMemo(() => {
     const freshnessStep = timeline.find((step) =>
@@ -199,6 +228,39 @@ export default function Home() {
             summary: message,
           },
         ],
+        agentRun: {
+          agentName: "Pipeline Rescue Agent",
+          goal: "Investigate whether a stale reporting dashboard can be trusted before stakeholders use it for business decisions.",
+          plan: ["Retry the investigation.", "Check service credentials."],
+          toolsUsed: [
+            {
+              step: "Investigation failed",
+              tool: "Pipeline Rescue Agent",
+              status: "error",
+            },
+          ],
+          observations: [message],
+          decision: {
+            pipelineStatus: "Needs review",
+            dataStatus: "Unknown",
+            likelyIssue: "Investigation error",
+            decisionSummary: "The investigation could not complete.",
+            confidence: "low",
+            recommendedHumanAction: "Retry the investigation or check service credentials.",
+            approvalRequired: true,
+          },
+          guardrails: [
+            "The agent does not send stakeholder communication automatically.",
+            "The agent does not perform destructive pipeline operations automatically.",
+            "The recovery brief requires human approval before it is treated as stakeholder-ready.",
+          ],
+          finalArtifact: {
+            type: "human_approved_recovery_brief",
+            status: "blocked",
+            stakeholderMessagePreview:
+              "The dashboard investigation could not complete. Please retry or contact the data operations owner.",
+          },
+        },
         recoveryPlan: {
           likelyCause: "The investigation could not complete.",
           businessRisk: "The dashboard freshness risk remains unresolved.",
@@ -463,6 +525,78 @@ export default function Home() {
                 <p className="mt-1 text-xl font-black text-purple-100">
                   {outcome.approval}
                 </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {agentRun ? (
+          <section className="rounded-3xl border border-purple-400/25 bg-purple-950/10 p-5">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-purple-300">
+                  Agent Run Ledger
+                </p>
+                <h2 className="mt-2 text-2xl font-black">
+                  Goal, decision, and guardrails are auditable.
+                </h2>
+              </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-xs text-slate-300">
+                Agent proof · Goal → Tools → Decision → Approval
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_1fr]">
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-purple-300">
+                  Goal
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-100">
+                  {agentRun.goal}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-purple-300">
+                  Decision
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-100">
+                  {agentRun.decision.pipelineStatus} pipeline ·{" "}
+                  {agentRun.decision.dataStatus} data · likely issue:{" "}
+                  {agentRun.decision.likelyIssue}
+                </p>
+                <p className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Confidence: {agentRun.decision.confidence}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-purple-300">
+                  Tools Used
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {agentRun.toolsUsed.map((tool) => (
+                    <span
+                      key={`${tool.step}-${tool.tool}`}
+                      className="rounded-full border border-purple-400/20 bg-purple-500/10 px-3 py-1 text-xs font-bold text-purple-100"
+                    >
+                      {tool.tool}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-950/80 p-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-purple-300">
+                  Guardrails
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-100">
+                  {agentRun.guardrails.slice(0, 3).map((guardrail) => (
+                    <li key={guardrail}>{guardrail}</li>
+                  ))}
+                </ul>
               </div>
             </div>
           </section>
