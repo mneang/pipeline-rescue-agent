@@ -1,13 +1,26 @@
 # Pipeline Rescue Agent
 
-An evidence-backed, human-approved data incident response agent for stale reporting pipelines.
+Pipeline Rescue Agent is an evidence-backed, human-approved executive incident cockpit for stale reporting pipelines.
 
-Pipeline Rescue Agent investigates a stale business dashboard, checks live Fivetran pipeline status, checks live BigQuery freshness, uses Gemini on Google Cloud to generate a recovery plan, records an auditable agent run ledger, and requires human approval before producing a stakeholder-ready recovery brief.
+It answers one urgent business question: **can stakeholders trust this dashboard right now?**
 
-**Hackathon:** Google Cloud Rapid Agent Hackathon  
+The agent investigates the incident, checks live Fivetran status, checks BigQuery freshness, uses Gemini on Google Cloud to generate a recovery plan, records an auditable agent run ledger, and requires human approval before producing a stakeholder-ready recovery brief.
+
+**Hackathon:** [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.com/)  
 **Track:** Fivetran  
 **Live Demo:** https://pipeline-rescue-agent-226881366082.us-central1.run.app  
-**Repository:** https://github.com/mneang/pipeline-rescue-agent  
+**Repository:** https://github.com/mneang/pipeline-rescue-agent
+
+---
+
+## Quick demo path
+
+1. Open the live demo.
+2. Click **Run Rescue Investigation**.
+3. Review the executive trust decision.
+4. Open optional proof panels for evidence, audit, or recovery details.
+5. Click **Approve Recovery Brief**.
+6. Review the approved stakeholder brief.
 
 ---
 
@@ -55,18 +68,16 @@ The agent determines that Fivetran is healthy, BigQuery data is stale, and the l
 
 ---
 
-## What the agent does
+## How the agent works
 
 Pipeline Rescue Agent runs a structured investigation:
 
 1. Loads the active reporting incident.
 2. Checks live Fivetran connection status.
 3. Checks live BigQuery freshness evidence.
-4. Sends the collected evidence to Gemini on Google Cloud.
-5. Generates a recovery plan.
-6. Records an auditable agent run ledger.
-7. Enforces human approval for high-severity or stale-data incidents.
-8. Produces a stakeholder-safe recovery brief.
+4. Uses Gemini on Google Cloud to generate a recovery plan.
+5. Records an auditable agent run ledger.
+6. Requires human approval before producing the stakeholder-ready recovery brief.
 
 The model recommends; the human approves.
 
@@ -151,13 +162,14 @@ User / Judge
    v
 Next.js Web App
    |
-   |-- Active incident
-   |-- Agent tool timeline
-   |-- Investigation outcome
+   |-- Executive incident cockpit
+   |-- Trust decision summary
+   |-- Optional proof panels
+   |-- Evidence trail
    |-- Agent Run Ledger
-   |-- Recovery plan
+   |-- Recovery path
    |-- Human approval
-   |-- Approved recovery brief
+   |-- Approved stakeholder brief
    |
    v
 Next.js API Routes on Cloud Run
@@ -263,7 +275,7 @@ During development, a local MCP client successfully:
 - called `get_connection_details` for the same Fivetran connection used in the deployed demo
 - retrieved live connection details for the Google Sheets to BigQuery pipeline
 
-For judge-facing reproducibility, the deployed Cloud Run app uses stable backend tool routes to inspect Fivetran status and BigQuery freshness. The MCP validation confirms compatibility with the official Fivetran MCP surface without adding late-stage deployment risk to the public demo.
+For judge-facing reliability, the deployed Cloud Run app uses stable backend tool routes to inspect Fivetran status and BigQuery freshness. The MCP validation confirms compatibility with the official Fivetran MCP surface without adding late-stage deployment risk to the public demo.
 
 ---
 
@@ -320,17 +332,18 @@ https://pipeline-rescue-agent-226881366082.us-central1.run.app
 Then:
 
 1. Click **Run Rescue Investigation**.
-2. Review the agent tool timeline.
-3. Review the investigation outcome.
-4. Review the Agent Run Ledger.
-5. Review the recovery plan.
-6. Click **Approve Recovery Brief**.
-7. Review the approved stakeholder recovery brief and before/after impact summary.
+2. Review the **Executive Incident Cockpit** trust decision.
+3. Open optional proof panels if you want to inspect evidence, audit, or recovery details.
+4. Click **Approve Recovery Brief**.
+5. Review the approved stakeholder brief and before/after impact summary.
 
-The intended two-click flow is:
+The intended interaction is intentionally short:
 
 ```text
 Run Rescue Investigation
+   |
+   v
+Review trust decision
    |
    v
 Approve Recovery Brief
