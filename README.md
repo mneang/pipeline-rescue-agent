@@ -259,6 +259,12 @@ This helps the agent distinguish between a broken connector and a stale-data sce
 
 ---
 
+### Cached Fivetran evidence for judge reliability
+
+The Fivetran trial used for development may expire before judging. To keep the hosted demo reliable after trial expiration, the app can use cached Fivetran connection evidence captured from the validated Google Sheets to BigQuery demo pipeline.
+
+During development, the app successfully called the live Fivetran API for this connection, and the official Fivetran MCP server was validated locally in read-only mode against the same connection. This keeps the public demo judge-testable while preserving the Fivetran evidence path.
+
 ## Fivetran MCP validation
 
 The official Fivetran MCP server was validated locally in read-only mode with:

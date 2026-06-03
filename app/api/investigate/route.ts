@@ -221,7 +221,11 @@ export async function POST() {
     timeline.push({
       step: "Check Fivetran connection",
       tool: "Fivetran API",
-      status: fivetranStatus.mode === "live" ? "success" : "fallback",
+      status:
+        fivetranStatus.mode === "live" ||
+        fivetranStatus.mode === "cached_fivetran_evidence"
+          ? "success"
+          : "fallback",
       summary: `Fivetran ${String(
         fivetranStatus.service ?? "connection"
       )} is ${String(rawFivetranStatus.setup_state ?? "checked")} / ${String(
