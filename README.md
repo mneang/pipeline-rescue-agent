@@ -4,7 +4,7 @@ Pipeline Rescue Agent is an evidence-backed, human-approved executive incident c
 
 It answers one urgent business question: **can stakeholders trust this dashboard right now?**
 
-The agent investigates the incident, checks live Fivetran status, checks BigQuery freshness, uses Gemini on Google Cloud to generate a recovery plan, records an auditable agent run ledger, and requires human approval before producing a stakeholder-ready recovery brief.
+The agent investigates an incident, checks Fivetran pipeline evidence, checks BigQuery freshness, uses Gemini on Google Cloud to generate a recovery plan, records an auditable agent run ledger, and requires human approval before producing a stakeholder-ready recovery brief.
 
 **Hackathon:** [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.com/)  
 **Track:** Fivetran  
@@ -17,10 +17,20 @@ The agent investigates the incident, checks live Fivetran status, checks BigQuer
 
 1. Open the live demo.
 2. Click **Run Rescue Investigation**.
-3. Review the executive trust decision.
+3. Review the **Executive Incident Cockpit** trust decision.
 4. Open optional proof panels for evidence, audit, or recovery details.
 5. Click **Approve Recovery Brief**.
 6. Review the approved stakeholder brief.
+
+---
+
+## The insight
+
+A pipeline can report healthy while the dashboard data is still stale.
+
+Pipeline Rescue Agent focuses on the operational trust decision: **should stakeholders use this dashboard right now?**
+
+In the demo, Fivetran connection evidence shows the pipeline path is healthy, while BigQuery freshness evidence shows the reporting table is stale. The agent therefore does not clear the dashboard for leadership use.
 
 ---
 
@@ -37,9 +47,9 @@ When a sales, finance, or operations dashboard becomes stale before an important
 - What should stakeholders be told?
 - What action needs human approval?
 
-Pipeline Rescue Agent compresses that investigation into one agent workflow.
+Pipeline Rescue Agent compresses that investigation into one guided workflow.
 
-It is not a chatbot and it is not just a monitoring dashboard. It is a focused data incident responder that gathers evidence, makes a decision, records its reasoning path, and stops for human approval before communication.
+It is not a chatbot and it is not just a monitoring dashboard. It is a focused data incident responder that gathers evidence, makes a trust decision, records its reasoning path, and stops for human approval before communication.
 
 ---
 
@@ -64,7 +74,7 @@ BigQuery table: pipeline_rescue.sales_orders
 Executive Sales Overview dashboard scenario
 ```
 
-The agent determines that Fivetran is healthy, BigQuery data is stale, and the likely issue is upstream source freshness, sync detection, or downstream processing.
+The agent determines that Fivetran evidence is healthy, BigQuery data is stale, and the likely issue is upstream source freshness, sync detection, or downstream processing.
 
 ---
 
@@ -73,7 +83,7 @@ The agent determines that Fivetran is healthy, BigQuery data is stale, and the l
 Pipeline Rescue Agent runs a structured investigation:
 
 1. Loads the active reporting incident.
-2. Checks live Fivetran connection status.
+2. Checks Fivetran connection evidence.
 3. Checks live BigQuery freshness evidence.
 4. Uses Gemini on Google Cloud to generate a recovery plan.
 5. Records an auditable agent run ledger.
@@ -83,10 +93,34 @@ The model recommends; the human approves.
 
 ---
 
+## What makes it an agent
+
+Pipeline Rescue Agent does not simply summarize an error.
+
+It follows a goal, gathers tool evidence, records observations, makes a trust decision, generates a recovery path, and stops for human approval before stakeholder communication.
+
+```text
+Goal
+  |
+  v
+Fivetran evidence + BigQuery freshness
+  |
+  v
+Gemini recovery reasoning
+  |
+  v
+Agent Run Ledger
+  |
+  v
+Human-approved recovery brief
+```
+
+---
+
 ## Key features
 
-- **Live Fivetran status check**  
-  Reads the active connection status, setup state, sync state, update state, warnings, and tasks.
+- **Fivetran evidence path**  
+  Reads connection status evidence, setup state, sync state, update state, warnings, and tasks.
 
 - **Live BigQuery freshness check**  
   Checks the destination table freshness and row count evidence.
@@ -102,6 +136,21 @@ The model recommends; the human approves.
 
 - **Fallback strategy**  
   If Fivetran, BigQuery, or Gemini are unavailable, the app returns clearly labeled fallback results so the demo remains stable without hiding failures.
+
+---
+
+## Human approval and guardrails
+
+Pipeline Rescue Agent is designed for safe operational use.
+
+For high-severity or stale-data incidents, the application enforces human approval before the recovery brief is treated as stakeholder-ready. Gemini can generate the recommendation, but the app-level guardrail controls whether the result is approved for communication.
+
+Guardrails include:
+
+- the agent does not send stakeholder communication automatically
+- the agent does not perform destructive pipeline operations automatically
+- the agent uses Fivetran and BigQuery evidence before generating a recommendation
+- the recovery brief requires human approval before it is treated as stakeholder-ready
 
 ---
 
@@ -137,21 +186,6 @@ Example decision fields:
 
 ---
 
-## Human approval and guardrails
-
-Pipeline Rescue Agent is designed for safe operational use.
-
-For high-severity or stale-data incidents, the application enforces human approval before the recovery brief is treated as stakeholder-ready. Gemini can generate the recommendation, but the app-level guardrail controls whether the result is approved for communication.
-
-Guardrails include:
-
-- the agent does not send stakeholder communication automatically
-- the agent does not perform destructive pipeline operations automatically
-- the agent uses Fivetran and BigQuery evidence before generating a recommendation
-- the recovery brief requires human approval before it is treated as stakeholder-ready
-
----
-
 ## Architecture
 
 <img width="1774" height="887" alt="technical architecture" src="https://github.com/user-attachments/assets/79ee1f22-cea8-4fb3-a67f-c58ab83532de" />
@@ -182,7 +216,7 @@ Next.js API Routes on Cloud Run
    |      loads the demo incident
    |
    |-- GET /api/fivetran/status
-   |      checks live Fivetran connection status
+   |      checks Fivetran connection evidence
    |
    |-- GET /api/data/freshness
    |      checks live BigQuery freshness
@@ -210,7 +244,7 @@ Google Cloud + Partner Services
    |
    |-- Fivetran
           syncs Google Sheets source data into BigQuery
-          provides live connection status for the agent investigation
+          provides connection status evidence for the agent investigation
 ```
 
 ---
@@ -244,7 +278,7 @@ This project uses Google Cloud throughout the workflow:
 
 Fivetran is the partner-powered pipeline layer for the demo.
 
-The app checks live Fivetran connection status through the backend, including:
+The app checks Fivetran connection evidence through the backend, including:
 
 - connection ID
 - service
@@ -257,15 +291,13 @@ The app checks live Fivetran connection status through the backend, including:
 
 This helps the agent distinguish between a broken connector and a stale-data scenario where the connector is healthy but the destination table has not received fresh records.
 
----
+### Judge-safe Fivetran evidence
 
-### Cached Fivetran evidence for judge reliability
-
-The Fivetran trial used for development may expire before judging. To keep the hosted demo reliable after trial expiration, the app can use cached Fivetran connection evidence captured from the validated Google Sheets to BigQuery demo pipeline.
+The Fivetran trial used during development may expire before judging. To keep the hosted demo reliable after trial expiration, the app can use cached Fivetran connection evidence captured from the validated Google Sheets to BigQuery demo pipeline.
 
 During development, the app successfully called the live Fivetran API for this connection, and the official Fivetran MCP server was validated locally in read-only mode against the same connection. This keeps the public demo judge-testable while preserving the Fivetran evidence path.
 
-## Fivetran MCP validation
+### Fivetran MCP validation
 
 The official Fivetran MCP server was validated locally in read-only mode with:
 
@@ -311,7 +343,7 @@ Returns the active demo incident.
 
 ### `GET /api/fivetran/status`
 
-Checks live Fivetran connection status.
+Checks Fivetran connection evidence.
 
 ### `GET /api/data/freshness`
 
@@ -434,9 +466,9 @@ The project is deployed to Google Cloud Run.
 Example deploy command:
 
 ```bash
-gcloud run deploy pipeline-rescue-agent \
-  --source . \
-  --region us-central1 \
+gcloud run deploy pipeline-rescue-agent \\
+  --source . \\
+  --region us-central1 \\
   --allow-unauthenticated
 ```
 
@@ -450,11 +482,29 @@ The app is designed to keep the demo stable without hiding failures.
 
 Fallback behavior:
 
-- If Fivetran credentials are missing or unavailable, the app returns a clearly labeled fallback response.
-- If BigQuery freshness cannot be queried, the app returns a demo fallback freshness result.
+- If Fivetran credentials are missing, expired, or unavailable, the app returns cached Fivetran evidence captured from the validated demo pipeline.
+- If BigQuery freshness cannot be queried, the app returns a clearly labeled fallback freshness result.
 - If Gemini is unavailable, the app uses a deterministic fallback recovery plan.
 
-This makes the project reliable for judging while still showing live integrations when available.
+This makes the project reliable for judging while still showing the intended evidence path.
+
+---
+
+## Challenges and decisions
+
+### Trial-safe Fivetran judging
+
+The Fivetran trial used during development expired before final judging. During the trial, the app validated the Google Sheets to BigQuery connection through the live Fivetran API, and the official Fivetran MCP server was validated locally in read-only mode against the same connection.
+
+To keep the hosted demo reliable for judges after trial expiration, the deployed app uses cached Fivetran connection evidence captured from the validated demo pipeline. The agent still combines that Fivetran evidence with live BigQuery freshness and Gemini reasoning.
+
+### Safety over automatic repair
+
+The app intentionally does not auto-send stakeholder communication, trigger destructive pipeline operations, or force a Fivetran resync. The MVP focuses on the trust decision and approval workflow: collect evidence, decide whether the dashboard is safe to use, and produce a recovery brief only after human approval.
+
+### Vertical slice over feature sprawl
+
+The project focuses on one high-severity stale-dashboard incident instead of many shallow scenarios. This keeps the demo judge-testable while still showing the full agent loop: incident, evidence, reasoning, audit, approval, and brief.
 
 ---
 
