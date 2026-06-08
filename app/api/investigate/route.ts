@@ -44,8 +44,13 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     Array.isArray(rawStatus.warnings) && rawStatus.warnings.length > 0;
   const hasTasks = Array.isArray(rawStatus.tasks) && rawStatus.tasks.length > 0;
 
+  const hasValidatedEvidence =
+    fivetranStatus.mode === "mcp_live" ||
+    fivetranStatus.mode === "live" ||
+    fivetranStatus.mode === "cached_fivetran_evidence";
+
   const isHealthy =
-    fivetranStatus.mode === "live" &&
+    hasValidatedEvidence &&
     setupState === "connected" &&
     updateState === "on_schedule" &&
     !hasWarnings &&
@@ -121,7 +126,9 @@ function buildAgentRun(args: {
   const likelyIssue = getLikelyIssue(pipelineDecision, freshness);
 
   const liveEvidenceCount = [
-    fivetranStatus.mode === "live",
+    fivetranStatus.mode === "mcp_live" ||
+      fivetranStatus.mode === "live" ||
+      fivetranStatus.mode === "cached_fivetran_evidence",
     freshness.mode === "live_bigquery",
     mode === "gemini_live",
   ].filter(Boolean).length;
@@ -220,8 +227,9 @@ export async function POST() {
 
     timeline.push({
       step: "Check Fivetran connection",
-      tool: "Fivetran API",
+      tool: "Fivetran MCP / API",
       status:
+        fivetranStatus.mode === "mcp_live" ||
         fivetranStatus.mode === "live" ||
         fivetranStatus.mode === "cached_fivetran_evidence"
           ? "success"
@@ -237,6 +245,7 @@ export async function POST() {
         schema: fivetranStatus.schema,
         paused: fivetranStatus.paused,
         mode: fivetranStatus.mode,
+        mcpRuntime: fivetranStatus.mcpRuntime,
         setupState: rawFivetranStatus.setup_state,
         syncState: rawFivetranStatus.sync_state,
         updateState: rawFivetranStatus.update_state,
