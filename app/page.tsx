@@ -111,12 +111,6 @@ const cardMotion = {
   transition: { duration: 0.28 },
 };
 
-function formatFreshness(minutes?: number) {
-  if (typeof minutes !== "number" || Number.isNaN(minutes)) return "Pending check";
-  if (minutes < 60) return `${minutes} min stale`;
-  return `~${Math.round(minutes / 60)} hrs stale`;
-}
-
 function freshnessSentence(minutes?: number) {
   if (typeof minutes !== "number" || Number.isNaN(minutes)) return "Freshness check has not run yet.";
   if (minutes < 60) return `${minutes} minutes stale against a 6-hour expectation.`;

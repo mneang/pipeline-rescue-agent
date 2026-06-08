@@ -1,14 +1,20 @@
+import {
+  FivetranMcpRuntime,
+  getFivetranMcpRuntimeStatus,
+} from "@/lib/fivetranMcp";
+
 type FivetranStatus = {
   connectionId: string;
   service: string;
   schema: string;
   paused: boolean;
   status: Record<string, unknown>;
-  mode: "live" | "cached_fivetran_evidence" | "fallback";
+  mode: "mcp_live" | "live" | "cached_fivetran_evidence" | "fallback";
   fallbackReason?: string;
+  mcpRuntime: FivetranMcpRuntime;
 };
 
-const CACHED_FIVETRAN_EVIDENCE: FivetranStatus = {
+const CACHED_FIVETRAN_EVIDENCE: Omit<FivetranStatus, "mcpRuntime"> = {
   connectionId: process.env.FIVETRAN_CONNECTION_ID ?? "chisel_consumption",
   service: "google_sheets",
   schema: "pipeline_rescue.sales_orders",
@@ -31,10 +37,25 @@ export async function getFivetranConnectionStatus(): Promise<FivetranStatus> {
   const apiSecret = process.env.FIVETRAN_API_SECRET;
   const connectionId = process.env.FIVETRAN_CONNECTION_ID ?? "chisel_consumption";
 
+  const mcpRuntime = await getFivetranMcpRuntimeStatus();
+
+  if (mcpRuntime.ok && mcpRuntime.data) {
+    return {
+      connectionId: mcpRuntime.data.id ?? connectionId,
+      service: mcpRuntime.data.service ?? "google_sheets",
+      schema: mcpRuntime.data.schema ?? "pipeline_rescue.sales_orders",
+      paused: Boolean(mcpRuntime.data.paused),
+      status: mcpRuntime.data.status ?? {},
+      mode: "mcp_live",
+      mcpRuntime,
+    };
+  }
+
   if (!apiKey || !apiSecret) {
     return {
       ...CACHED_FIVETRAN_EVIDENCE,
       connectionId,
+      mcpRuntime,
       fallbackReason:
         "Fivetran credentials are unavailable; using cached connection evidence captured from the validated Google Sheets to BigQuery demo pipeline.",
     };
@@ -58,6 +79,7 @@ export async function getFivetranConnectionStatus(): Promise<FivetranStatus> {
       return {
         ...CACHED_FIVETRAN_EVIDENCE,
         connectionId,
+        mcpRuntime,
         fallbackReason:
           response.status === 402
             ? "Fivetran trial expired; using cached connection evidence captured from the validated Google Sheets to BigQuery demo pipeline."
@@ -75,11 +97,13 @@ export async function getFivetranConnectionStatus(): Promise<FivetranStatus> {
       paused: Boolean(data.paused),
       status: data.status ?? {},
       mode: "live",
+      mcpRuntime,
     };
   } catch (error) {
     return {
       ...CACHED_FIVETRAN_EVIDENCE,
       connectionId,
+      mcpRuntime,
       fallbackReason:
         error instanceof Error
           ? `Fivetran API error: ${error.message}; using cached connection evidence captured from the validated demo pipeline.`
