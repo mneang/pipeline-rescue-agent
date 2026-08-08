@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import incidents from "@/data/incidents.json";
 import { getFivetranConnectionStatus } from "@/lib/fivetran";
 import {
@@ -49,6 +50,12 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     fivetranStatus.mode === "live" ||
     fivetranStatus.mode === "cached_fivetran_evidence";
 
+  // Diagnostic only: preserve the existing bug while recording
+  // whether the health verdict is based on live evidence.
+  const hasLiveEvidence =
+    fivetranStatus.mode === "mcp_live" ||
+    fivetranStatus.mode === "live";
+
   const isHealthy =
     hasValidatedEvidence &&
     setupState === "connected" &&
@@ -56,6 +63,52 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     !hasWarnings &&
     !hasTasks &&
     fivetranStatus.paused === false;
+
+  const falseGreenDetected = isHealthy && !hasLiveEvidence;
+
+  Sentry.startSpan(
+    {
+      name: "Evaluate Fivetran health verdict",
+      op: "pipeline.decision",
+    },
+    (span) => {
+      span.setAttribute("bugsmash.scenario", "false-green");
+      span.setAttribute("evidence.mode", fivetranStatus.mode);
+      span.setAttribute("evidence.live", hasLiveEvidence);
+      span.setAttribute(
+        "fivetran.mcp_ok",
+        Boolean(fivetranStatus.mcpRuntime?.ok)
+      );
+      span.setAttribute("fivetran.setup_state", setupState || "unknown");
+      span.setAttribute("fivetran.update_state", updateState || "unknown");
+      span.setAttribute(
+        "pipeline.health_verdict",
+        isHealthy ? "healthy" : "needs_review"
+      );
+      span.setAttribute("false_green.detected", falseGreenDetected);
+
+      if (falseGreenDetected) {
+        Sentry.captureMessage(
+          "False green health verdict: non-live Fivetran evidence classified as Healthy",
+          {
+            level: "warning",
+            fingerprint: ["bugsmash-false-green"],
+            tags: {
+              bugsmash: "false-green",
+              evidence_mode: fivetranStatus.mode,
+              pipeline_verdict: "healthy",
+            },
+            extra: {
+              liveEvidence: hasLiveEvidence,
+              mcpOk: Boolean(fivetranStatus.mcpRuntime?.ok),
+              setupState,
+              updateState,
+            },
+          }
+        );
+      }
+    }
+  );
 
   return {
     status: isHealthy ? "healthy" : "needs_review",
