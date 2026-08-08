@@ -45,19 +45,14 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     Array.isArray(rawStatus.warnings) && rawStatus.warnings.length > 0;
   const hasTasks = Array.isArray(rawStatus.tasks) && rawStatus.tasks.length > 0;
 
-  const hasValidatedEvidence =
-    fivetranStatus.mode === "mcp_live" ||
-    fivetranStatus.mode === "live" ||
-    fivetranStatus.mode === "cached_fivetran_evidence";
-
-  // Diagnostic only: preserve the existing bug while recording
-  // whether the health verdict is based on live evidence.
+  // A green verdict requires current/live Fivetran evidence.
+  // Cached evidence is historical context only and cannot clear the pipeline.
   const hasLiveEvidence =
     fivetranStatus.mode === "mcp_live" ||
     fivetranStatus.mode === "live";
 
   const isHealthy =
-    hasValidatedEvidence &&
+    hasLiveEvidence &&
     setupState === "connected" &&
     updateState === "on_schedule" &&
     !hasWarnings &&
@@ -75,6 +70,7 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
       span.setAttribute("bugsmash.scenario", "false-green");
       span.setAttribute("evidence.mode", fivetranStatus.mode);
       span.setAttribute("evidence.live", hasLiveEvidence);
+      span.setAttribute("provenance.guard_applied", !hasLiveEvidence);
       span.setAttribute(
         "fivetran.mcp_ok",
         Boolean(fivetranStatus.mcpRuntime?.ok)
@@ -115,7 +111,9 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     label: isHealthy ? "Healthy" : "Needs review",
     reason: isHealthy
       ? "Fivetran is connected, on schedule, and reporting no active warnings or tasks."
-      : "Fivetran status requires review before the incident can be cleared.",
+      : !hasLiveEvidence
+        ? "Live Fivetran evidence is unavailable; cached evidence is advisory only and cannot clear the pipeline."
+        : "Fivetran status requires review before the incident can be cleared.",
   };
 }
 
@@ -180,8 +178,7 @@ function buildAgentRun(args: {
 
   const liveEvidenceCount = [
     fivetranStatus.mode === "mcp_live" ||
-      fivetranStatus.mode === "live" ||
-      fivetranStatus.mode === "cached_fivetran_evidence",
+      fivetranStatus.mode === "live",
     freshness.mode === "live_bigquery",
     mode === "gemini_live",
   ].filter(Boolean).length;
@@ -277,27 +274,27 @@ export async function POST() {
     const fivetranStatus = await getFivetranConnectionStatus();
 
     const rawFivetranStatus = asRecord(fivetranStatus.status);
+    const hasLiveFivetranEvidence =
+      fivetranStatus.mode === "mcp_live" || fivetranStatus.mode === "live";
 
     timeline.push({
       step: "Check Fivetran connection",
       tool: "Fivetran MCP / API",
-      status:
-        fivetranStatus.mode === "mcp_live" ||
-        fivetranStatus.mode === "live" ||
-        fivetranStatus.mode === "cached_fivetran_evidence"
-          ? "success"
-          : "fallback",
-      summary: `Fivetran ${String(
-        fivetranStatus.service ?? "connection"
-      )} is ${String(rawFivetranStatus.setup_state ?? "checked")} / ${String(
-        rawFivetranStatus.update_state ?? "status available"
-      )}.`,
+      status: hasLiveFivetranEvidence ? "success" : "fallback",
+      summary: hasLiveFivetranEvidence
+        ? `Fivetran ${String(
+            fivetranStatus.service ?? "connection"
+          )} is ${String(rawFivetranStatus.setup_state ?? "checked")} / ${String(
+            rawFivetranStatus.update_state ?? "status available"
+          )}.`
+        : "Live Fivetran status is unavailable; cached evidence is advisory only and cannot clear the pipeline.",
       evidence: {
         connectionId: fivetranStatus.connectionId,
         service: fivetranStatus.service,
         schema: fivetranStatus.schema,
         paused: fivetranStatus.paused,
         mode: fivetranStatus.mode,
+        liveEvidence: hasLiveFivetranEvidence,
         mcpRuntime: fivetranStatus.mcpRuntime,
         setupState: rawFivetranStatus.setup_state,
         syncState: rawFivetranStatus.sync_state,

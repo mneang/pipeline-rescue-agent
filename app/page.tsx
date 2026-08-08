@@ -123,14 +123,28 @@ function conciseText(text: string, maxLength = 190) {
   return firstSentence.length <= maxLength ? firstSentence : `${firstSentence.slice(0, maxLength).trim()}…`;
 }
 
-function getOutcomeValue(timeline: TimelineStep[], recoveryPlan: RecoveryPlan | null) {
+function getOutcomeValue(
+  timeline: TimelineStep[],
+  recoveryPlan: RecoveryPlan | null,
+  agentRun: AgentRun | null
+) {
   const fivetranStep = timeline.find((step) => step.tool.toLowerCase().includes("fivetran"));
   const freshnessStep = timeline.find((step) => step.tool.toLowerCase().includes("freshness"));
 
   return {
-    pipeline: fivetranStep?.status === "success" ? "Healthy" : "Not checked",
+    pipeline:
+      agentRun?.decision.pipelineStatus ??
+      (fivetranStep?.status === "success"
+        ? "Healthy"
+        : fivetranStep?.status === "fallback"
+          ? "Needs review"
+          : "Not checked"),
     data: freshnessStep?.evidence?.status === "stale" ? "Stale" : "Not checked",
-    likelyIssue: freshnessStep?.evidence?.status === "stale" ? "Upstream source" : "Pending evidence",
+    likelyIssue:
+      agentRun?.decision.likelyIssue ??
+      (freshnessStep?.evidence?.status === "stale"
+        ? "Upstream source"
+        : "Pending evidence"),
     approval: recoveryPlan?.approvalRequired ? "Required" : "Pending",
   };
 }
@@ -235,7 +249,8 @@ export default function Home() {
     return typeof value === "number" ? value : undefined;
   }, [timeline]);
 
-  const outcome = getOutcomeValue(timeline, recoveryPlan);
+  const outcome = getOutcomeValue(timeline, recoveryPlan, agentRun);
+  const pipelineHealthy = outcome.pipeline === "Healthy";
   const nextAction = approved
     ? "Stakeholder recovery brief is ready."
     : recoveryPlan
@@ -441,9 +456,27 @@ export default function Home() {
                     {activeIncident?.title ?? "Loading..."}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4">
-                  <p className="text-[11px] font-black uppercase tracking-wider text-emerald-200">Pipeline</p>
-                  <p className="mt-1 text-xl font-black text-emerald-100">{outcome.pipeline}</p>
+                <div
+                  className={`rounded-2xl border p-4 ${
+                    pipelineHealthy
+                      ? "border-emerald-400/25 bg-emerald-500/10"
+                      : "border-amber-400/25 bg-amber-500/10"
+                  }`}
+                >
+                  <p
+                    className={`text-[11px] font-black uppercase tracking-wider ${
+                      pipelineHealthy ? "text-emerald-200" : "text-amber-200"
+                    }`}
+                  >
+                    Pipeline
+                  </p>
+                  <p
+                    className={`mt-1 text-xl font-black ${
+                      pipelineHealthy ? "text-emerald-100" : "text-amber-100"
+                    }`}
+                  >
+                    {outcome.pipeline}
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4">
                   <p className="text-[11px] font-black uppercase tracking-wider text-amber-200">Data</p>
@@ -463,7 +496,9 @@ export default function Home() {
                         Mission result
                       </p>
                       <p className="mt-1 text-lg font-black text-slate-100">
-                        Fivetran healthy · BigQuery stale · approval required
+                        {agentRun
+                          ? `${agentRun.decision.pipelineStatus} · ${agentRun.decision.dataStatus} · approval required`
+                          : `${outcome.pipeline} · ${outcome.data} · approval required`}
                       </p>
                     </div>
                     <StatusPill tone="amber">Do not clear dashboard</StatusPill>

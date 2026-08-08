@@ -22,14 +22,20 @@ export function getFallbackRecoveryPlan(input: RecoveryPlanInput): RecoveryPlan 
     title?: string;
     affectedDashboard?: string;
   };
+  const fivetranStatus = input.fivetranStatus as Record<string, unknown>;
+  const evidenceMode = String(fivetranStatus.mode ?? "unknown");
+  const hasLiveFivetranEvidence =
+    evidenceMode === "mcp_live" || evidenceMode === "live";
 
   return {
-    likelyCause:
-      "The reporting table is stale compared with the expected freshness window. The live Fivetran connection is currently connected and on schedule, so the controlled incident points to a data freshness gap that needs verification before the leadership meeting.",
+    likelyCause: hasLiveFivetranEvidence
+      ? "The reporting table is stale compared with the expected freshness window. Live Fivetran evidence shows the connection is connected and on schedule, so the incident points to a data freshness gap that needs verification before the leadership meeting."
+      : "The reporting table is stale and live Fivetran evidence is unavailable. Cached connector evidence cannot verify current health, so connector status and data freshness both require verification before the leadership meeting.",
     businessRisk:
       "The Executive Sales Overview dashboard may show outdated sales activity, which could lead leadership to make decisions using stale revenue or pipeline data.",
-    recommendedAction:
-      "Verify the latest Google Sheet source data, confirm the Fivetran connection remains on schedule, wait for or trigger the next sync, confirm the BigQuery table freshness, and notify stakeholders that the dashboard should not be used for live decisions until freshness is verified.",
+    recommendedAction: hasLiveFivetranEvidence
+      ? "Verify the latest Google Sheet source data, confirm the Fivetran connection remains on schedule, wait for or trigger the next sync, confirm the BigQuery table freshness, and notify stakeholders that the dashboard should not be used for live decisions until freshness is verified."
+      : "Restore or verify live Fivetran telemetry first, then verify the latest Google Sheet source data and BigQuery freshness before clearing the dashboard for stakeholder use.",
     approvalRequired: true,
     severity: "high",
     evidence: [
@@ -37,12 +43,16 @@ export function getFallbackRecoveryPlan(input: RecoveryPlanInput): RecoveryPlan 
       `Affected dashboard: ${
         incident.affectedDashboard ?? "Executive Sales Overview"
       }`,
-      "Live Fivetran connection status was checked.",
+      hasLiveFivetranEvidence
+        ? "Live Fivetran connection status was checked."
+        : "Live Fivetran status is unavailable; cached connector evidence is advisory only.",
       "The reporting table is outside the expected freshness window.",
     ],
     nextSteps: [
       "Check whether the Google Sheet source has the latest sales rows.",
-      "Confirm the Fivetran connection remains connected and on schedule.",
+      hasLiveFivetranEvidence
+        ? "Confirm the Fivetran connection remains connected and on schedule."
+        : "Restore or verify live Fivetran telemetry before judging connector health.",
       "Wait for or trigger the next sync.",
       "Verify the BigQuery table freshness after sync.",
       "Send a stakeholder-safe update before the leadership meeting.",
@@ -95,6 +105,9 @@ function buildJudgeSafeEvidence(input: RecoveryPlanInput) {
       updateState: rawStatus.update_state,
       tasks: rawStatus.tasks,
       warnings: rawStatus.warnings,
+      evidenceMode: fivetranStatus.mode,
+      liveEvidenceAvailable:
+        fivetranStatus.mode === "mcp_live" || fivetranStatus.mode === "live",
     },
     freshness: {
       table: freshness.table,
@@ -136,9 +149,10 @@ Return ONLY valid JSON. No markdown. No commentary.
 
 Important interpretation rules:
 - Treat the provided freshness status as a controlled demo incident for a hackathon.
-- Do NOT mention internal fields like demo mode, fallback mode, seed data, mocks, or test data.
-- Do NOT claim Fivetran failed if the Fivetran status says connected, ready, scheduled, or on_schedule.
-- If Fivetran is healthy but the table is stale, explain that the agent should verify source data, sync timing, and BigQuery freshness before stakeholders use the dashboard.
+- Evidence provenance is safety-critical. Treat Fivetran as currently healthy only when liveEvidenceAvailable is true and the live health fields are healthy.
+- If liveEvidenceAvailable is false, never describe the Fivetran connection as live, currently healthy, or verified healthy. Say current connector health needs verification.
+- Do not expose implementation labels such as cached_fivetran_evidence verbatim to stakeholders, but preserve their meaning: cached evidence is historical/advisory, not current proof.
+- If live Fivetran evidence is healthy but the table is stale, explain that the agent should verify source data, sync timing, and BigQuery freshness before stakeholders use the dashboard.
 - Be honest: if evidence is inconclusive, say the likely cause needs verification.
 - Keep the output useful for a business analyst.
 - Keep the stakeholder message calm and concise.
