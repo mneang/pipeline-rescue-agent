@@ -47,3 +47,6 @@ pipeline-rescue-agent/google-cloud-sdk/
 # Local Google Cloud SDK install - not part of the app
 google-cloud-sdk/
 pipeline-rescue-agent/google-cloud-sdk/
+
+# Sentry Config File
+.env.sentry-build-plugin
