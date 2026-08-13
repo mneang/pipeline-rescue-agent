@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import incidents from "@/data/incidents.json";
 import { getFivetranConnectionStatus } from "@/lib/fivetran";
+import { evaluateFivetranHealth } from "@/lib/pipelineHealth.mjs";
 import {
   generateRecoveryPlanWithGemini,
   getFallbackRecoveryPlan,
@@ -45,19 +46,14 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     Array.isArray(rawStatus.warnings) && rawStatus.warnings.length > 0;
   const hasTasks = Array.isArray(rawStatus.tasks) && rawStatus.tasks.length > 0;
 
-  // A green verdict requires current/live Fivetran evidence.
-  // Cached evidence is historical context only and cannot clear the pipeline.
-  const hasLiveEvidence =
-    fivetranStatus.mode === "mcp_live" ||
-    fivetranStatus.mode === "live";
-
-  const isHealthy =
-    hasLiveEvidence &&
-    setupState === "connected" &&
-    updateState === "on_schedule" &&
-    !hasWarnings &&
-    !hasTasks &&
-    fivetranStatus.paused === false;
+  const { hasLiveEvidence, isHealthy } = evaluateFivetranHealth({
+    mode: fivetranStatus.mode,
+    setupState,
+    updateState,
+    hasWarnings,
+    hasTasks,
+    paused: fivetranStatus.paused,
+  });
 
   const falseGreenDetected = isHealthy && !hasLiveEvidence;
 

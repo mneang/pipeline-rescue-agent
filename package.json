@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:false-green": "node scripts/verify-false-green.mjs"
+    "test:false-green": "node scripts/verify-false-green.mjs",
+    "test:health-invariant": "node scripts/verify-pipeline-health-invariant.mjs"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^8.3.1",
