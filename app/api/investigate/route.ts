@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import incidents from "@/data/incidents.json";
 import { getFivetranConnectionStatus } from "@/lib/fivetran";
+import { evaluateFivetranHealth } from "@/lib/pipelineHealth.mjs";
 import {
   generateRecoveryPlanWithGemini,
   getFallbackRecoveryPlan,
@@ -44,25 +46,70 @@ function getPipelineDecision(fivetranStatus: FivetranStatus) {
     Array.isArray(rawStatus.warnings) && rawStatus.warnings.length > 0;
   const hasTasks = Array.isArray(rawStatus.tasks) && rawStatus.tasks.length > 0;
 
-  const hasValidatedEvidence =
-    fivetranStatus.mode === "mcp_live" ||
-    fivetranStatus.mode === "live" ||
-    fivetranStatus.mode === "cached_fivetran_evidence";
+  const { hasLiveEvidence, isHealthy } = evaluateFivetranHealth({
+    mode: fivetranStatus.mode,
+    setupState,
+    updateState,
+    hasWarnings,
+    hasTasks,
+    paused: fivetranStatus.paused,
+  });
 
-  const isHealthy =
-    hasValidatedEvidence &&
-    setupState === "connected" &&
-    updateState === "on_schedule" &&
-    !hasWarnings &&
-    !hasTasks &&
-    fivetranStatus.paused === false;
+  const falseGreenDetected = isHealthy && !hasLiveEvidence;
+
+  Sentry.startSpan(
+    {
+      name: "Evaluate Fivetran health verdict",
+      op: "pipeline.decision",
+    },
+    (span) => {
+      span.setAttribute("bugsmash.scenario", "false-green");
+      span.setAttribute("evidence.mode", fivetranStatus.mode);
+      span.setAttribute("evidence.live", hasLiveEvidence);
+      span.setAttribute("provenance.guard_applied", !hasLiveEvidence);
+      span.setAttribute(
+        "fivetran.mcp_ok",
+        Boolean(fivetranStatus.mcpRuntime?.ok)
+      );
+      span.setAttribute("fivetran.setup_state", setupState || "unknown");
+      span.setAttribute("fivetran.update_state", updateState || "unknown");
+      span.setAttribute(
+        "pipeline.health_verdict",
+        isHealthy ? "healthy" : "needs_review"
+      );
+      span.setAttribute("false_green.detected", falseGreenDetected);
+
+      if (falseGreenDetected) {
+        Sentry.captureMessage(
+          "False green health verdict: non-live Fivetran evidence classified as Healthy",
+          {
+            level: "warning",
+            fingerprint: ["bugsmash-false-green"],
+            tags: {
+              bugsmash: "false-green",
+              evidence_mode: fivetranStatus.mode,
+              pipeline_verdict: "healthy",
+            },
+            extra: {
+              liveEvidence: hasLiveEvidence,
+              mcpOk: Boolean(fivetranStatus.mcpRuntime?.ok),
+              setupState,
+              updateState,
+            },
+          }
+        );
+      }
+    }
+  );
 
   return {
     status: isHealthy ? "healthy" : "needs_review",
     label: isHealthy ? "Healthy" : "Needs review",
     reason: isHealthy
       ? "Fivetran is connected, on schedule, and reporting no active warnings or tasks."
-      : "Fivetran status requires review before the incident can be cleared.",
+      : !hasLiveEvidence
+        ? "Live Fivetran evidence is unavailable; cached evidence is advisory only and cannot clear the pipeline."
+        : "Fivetran status requires review before the incident can be cleared.",
   };
 }
 
@@ -127,8 +174,7 @@ function buildAgentRun(args: {
 
   const liveEvidenceCount = [
     fivetranStatus.mode === "mcp_live" ||
-      fivetranStatus.mode === "live" ||
-      fivetranStatus.mode === "cached_fivetran_evidence",
+      fivetranStatus.mode === "live",
     freshness.mode === "live_bigquery",
     mode === "gemini_live",
   ].filter(Boolean).length;
@@ -224,27 +270,27 @@ export async function POST() {
     const fivetranStatus = await getFivetranConnectionStatus();
 
     const rawFivetranStatus = asRecord(fivetranStatus.status);
+    const hasLiveFivetranEvidence =
+      fivetranStatus.mode === "mcp_live" || fivetranStatus.mode === "live";
 
     timeline.push({
       step: "Check Fivetran connection",
       tool: "Fivetran MCP / API",
-      status:
-        fivetranStatus.mode === "mcp_live" ||
-        fivetranStatus.mode === "live" ||
-        fivetranStatus.mode === "cached_fivetran_evidence"
-          ? "success"
-          : "fallback",
-      summary: `Fivetran ${String(
-        fivetranStatus.service ?? "connection"
-      )} is ${String(rawFivetranStatus.setup_state ?? "checked")} / ${String(
-        rawFivetranStatus.update_state ?? "status available"
-      )}.`,
+      status: hasLiveFivetranEvidence ? "success" : "fallback",
+      summary: hasLiveFivetranEvidence
+        ? `Fivetran ${String(
+            fivetranStatus.service ?? "connection"
+          )} is ${String(rawFivetranStatus.setup_state ?? "checked")} / ${String(
+            rawFivetranStatus.update_state ?? "status available"
+          )}.`
+        : "Live Fivetran status is unavailable; cached evidence is advisory only and cannot clear the pipeline.",
       evidence: {
         connectionId: fivetranStatus.connectionId,
         service: fivetranStatus.service,
         schema: fivetranStatus.schema,
         paused: fivetranStatus.paused,
         mode: fivetranStatus.mode,
+        liveEvidence: hasLiveFivetranEvidence,
         mcpRuntime: fivetranStatus.mcpRuntime,
         setupState: rawFivetranStatus.setup_state,
         syncState: rawFivetranStatus.sync_state,

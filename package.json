@@ -6,11 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:false-green": "node scripts/verify-false-green.mjs",
+    "test:health-invariant": "node scripts/verify-pipeline-health-invariant.mjs"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^8.3.1",
     "@google/genai": "^2.3.0",
+    "@sentry/nextjs": "^10.69.0",
     "lucide-react": "^1.17.0",
     "motion": "^12.40.0",
     "next": "16.2.6",
